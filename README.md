@@ -43,6 +43,8 @@ AIBot 的配置保存在本地 `config.yaml`，对话上下文保存在本地 `C
 
 > 这里以 `Debian` 系统为例
 
+由于 curl-cffi 从 0.15.0 才支持 AsyncSession 的 Retry ，而 0.15.0 的最低 Python 版本要求为 `3.10` 所以你需要最低 `3.10` 版本的 Python 才可以正常运行本机器人。 
+
 你首先可能需要安装软件包
 
 ```bash
