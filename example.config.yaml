@@ -1,0 +1,18 @@
+#####################################
+# 此配置文件为启动 Bot 所需的最简配置 #
+#####################################
+
+SuAdmin:
+- 你的id
+Bot:
+  ApiHash: 你的ApiHash
+  ApiId: 你的ApiId
+  Token: 你的BotToken
+AI:
+  Vendor:
+    MyVendor:
+      BaseUrl: https://example.com/v1
+      Key: sk-xxxxxxxx
+      Model:
+      - gpt-5.5
+  DefaultModel: gpt-5.5

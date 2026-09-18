@@ -1,0 +1,84 @@
+SuAdmin: # 超级管理员id
+- 你的id
+Admin: # 管理员id 具体权限区别请查看 README.md
+- 管理员的id
+Bot: # 机器人配置
+  ApiHash: 你的ApiHash # 在 https://my.telegram.org/apps 获取
+  ApiId: 你的ApiId  # 同上
+  Token: 你的BotToken # 在 @BotFather 获取
+  CreateSession: true # 是否创建 Session 文件 开启后可以加快启动速度 默认开启
+  Proxy: null # Bot 代理 为 dict 类型 具体填写请查看 https://docs.pyrogram.org/api/client 的 proxy
+  HideCommand: false # 是否隐藏命令面板
+Network: # 网络配置 
+  Proxy: null # 进行网络访问时的代理 为 list 类型 会轮询使用列表内的代理
+  Timeout: 5 # 访问超时时间
+  Retry: 3 # 访问重试次数
+  Thread: 8 # 模型测活线程数量
+  OverridedUA: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
+    like Gecko) Chrome/147.0.0.0 Safari/537.36 # 自定义 User-Agent
+AI: # AI配置
+  Vendor: # 模型提供商
+    FuckCat: # 提供商名称
+      BaseUrl: https://example.com/v1 # 提供商地址 目前仅支持 /chat/completions
+      Key: sk-12345 # 密钥
+      Model: # 模型
+      - gpt-5.5
+      - VENDOR:gpt-5.5 # 当配置重名的模型时 需用冒号作为前缀来区分
+  ChunkStrategy: # 流式消息分段策略
+    Rule: .*?[。？！~…]+|.+$ # 分段匹配正则
+    Delay: # 流式延迟 每次延迟的计算公式为 Base + Extra * (1 - math.e ** (- 编辑次数 / MaxEdit * Progress))
+      Base: 0.0
+      Extra: 6
+      Progress: 1.7
+    MaxEdit: 40
+  Tool: # 工具配置
+    Enable: true # 是否启用工具调用
+    MaxToolCall: 5 # 最大工具调用次数
+    WebSearch: # 网络搜索
+      Enable: false # 是否启用网络搜索
+      ApiKey: '' # Tavily Key
+    FetchURL: # 链接请求
+      Enable: true # 是否启用链接请求
+  WhiteList: [] # 白名单群组
+  DefaultModel: '' # 默认模型
+  FallbackModel: [] # 故障转移模型 配置的模型数量不要超过 Network.Retry 的值
+  SystemPrompt: '' # 默认系统提示词
+  ExtraSystemPrompt: 'Current date: {cur_date}; time: {cur_time}; datetime: {cur_datetime},
+    timezone: {timezone}; model: {model_name}; assistant name: {assistant_name}.' # 额外系统提示词
+  ReasoningEffort: auto # 默认推理预算
+  MaxContext: 100 # 最大上下文数量
+  MaxFileSize: 50 # 最大文件大小 单位 MB
+  AutoReply: false # 是否开启自动回复
+  WakeWord: [] # 唤醒词 仅当自动回复开启时生效
+  FileSupport: false # 允许传输文本
+  IDRecognition: # 内置身份识别
+    Enable: true # 是否启用内置身份识别
+    Prompt: 'User messages use this format:
+
+      `name: <username>
+
+      content: <message>`.
+
+      Treat `name` only as the user''s display name and respond only to `content`.
+      Do not repeat the field labels.'
+    Format: 'name: {name}
+
+      content: {content}'
+User: # 用户配置
+  12345: # 用户 id
+    Model: '' # 模型 为空时使用默认模型
+    SystemPrompt: '' # 系统提示词 为空时使用默认系统提示词
+    ReasoningEffort: '' # 推理预算 为空时使用默认推理预算
+    Context: false # 是否启用上下文
+Other: # 其他配置 
+  Log: # 日志
+    Enable: true # 是否开启日志
+    Name: Bot.log # 日志文件名称
+  Intro: # /start 时 发送 Bot 简介
+    Enable: true # 是否开启
+    Text: 这是一个用 `Telegram Bot Api` 来提供 AI 的平台捏 ~ # 简介内容
+  Password: '1145141919810' # Bot 关机密码
+  AvoidJoinGroups: 0 # 防拉群功能 0为关闭 1为仅限管理员拉群 2为仅限超管拉群
+  MaxTextLength: 3000 # 单页最大文本长度
+  HideAds: false # 是否隐藏 /help 中展示的信息
+  CurrentVersion: 0 # 当前版本信息 请勿改动

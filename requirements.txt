@@ -1,0 +1,8 @@
+PyYAML
+kurigram
+aiosqlite
+nest-asyncio
+loguru
+beautifulsoup4
+curl-cffi
+TgCrypto
