@@ -425,7 +425,7 @@ SuAdmin:
 
 ### 内联模式
 
-内联模式需要授权 Token 开启对应功能。开启后，仅管理员可以在任意聊天输入：
+开启后，仅管理员可以在任意聊天输入：
 
 ```text
 @机器人用户名 需要发送给模型的内容
@@ -437,7 +437,7 @@ SuAdmin:
 
 ### 访客模式
 
-访客模式同样需要授权 Token 开启对应功能。它使用 Pyrogram 的 guest message 能力，让管理员或白名单群组在对应入口中发送消息、使用 `/clear`、`/stats`、`/model`、`/effort`、`/trust`、`/distrust` 等操作。
+访客模式使用 Pyrogram 的 guest message 能力，让管理员或白名单群组在对应入口中发送消息、使用 `/clear`、`/stats`、`/model`、`/effort`、`/trust`、`/distrust` 等操作。
 
 
 ## 数据文件与更新
@@ -456,5 +456,4 @@ SuAdmin:
 - `AI.DefaultModel` 必须与 `AI.Vendor.*.Model` 中配置的名称完全一致。
 - 若未配置模型或默认模型，发起对话时无法正确选择模型。
 - 网络搜索、网页抓取、图片和文件功能需要模型提供商支持相应的 OpenAI 兼容格式。
-- Bot 启动时会校验授权 Token、绑定的 Bot、版本与数量限制；校验失败会退出。
 - 配置文件中有语法错误或类型不正确时，Bot 会拒绝加载该配置；可以对照 `readme.config.yaml` 修正。
