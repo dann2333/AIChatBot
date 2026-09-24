@@ -1,0 +1,9 @@
+.git
+.github
+**/__pycache__
+config.yaml
+Chat.db*
+*.log
+*.session
+workspace
+data

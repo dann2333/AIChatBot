@@ -4,16 +4,17 @@ Admin: # 管理员id 具体权限区别请查看 README.md
 - 管理员的id
 Bot: # 机器人配置
   ApiHash: 你的ApiHash # 在 https://my.telegram.org/apps 获取
-  ApiId: 你的ApiId  # 同上
+  ApiId: 你的ApiId # 同上
   Token: 你的BotToken # 在 @BotFather 获取
-  CreateSession: true # 是否创建 Session 文件 开启后可以加快启动速度 默认开启
+  CreateSession: true # 是否保存 Session 文件 开启后可以加快启动速度 默认开启
   Proxy: null # Bot 代理 为 dict 类型 具体填写请查看 https://docs.pyrogram.org/api/client 的 proxy
+  SleepThreshold: 10 # 遇到 FloodWait 时自动等待的最长秒数
   HideCommand: false # 是否隐藏命令面板
-Network: # 网络配置 
+Network: # 网络配置
   Proxy: null # 进行网络访问时的代理 为 list 类型 会轮询使用列表内的代理
-  Timeout: 5 # 访问超时时间
-  Retry: 3 # 访问重试次数
-  Thread: 8 # 模型测活线程数量
+  Timeout: 5 # 访问超时时间 流式请求为连接超时 另有 120 秒空闲超时
+  Retry: 3 # 访问重试次数 模型请求失败时会按故障转移模型轮换
+  Thread: 8 # 模型测活并发数量
   OverridedUA: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
     like Gecko) Chrome/147.0.0.0 Safari/537.36 # 自定义 User-Agent
 AI: # AI配置
@@ -28,30 +29,36 @@ AI: # AI配置
     Rule: .*?[。？！~…]+|.+$ # 分段匹配正则
     Delay: # 流式延迟 每次延迟的计算公式为 Base + Extra * (1 - math.e ** (- 编辑次数 / MaxEdit * Progress))
       Base: 0.0
-      Extra: 6
+      Extra: 6.0
       Progress: 1.7
-    MaxEdit: 40
+    MaxEdit: 40 # 群聊 / 内联消息最多编辑次数 私聊草稿不受限制
   Tool: # 工具配置
     Enable: true # 是否启用工具调用
-    MaxToolCall: 5 # 最大工具调用次数
+    MaxToolCall: 5 # 最大工具调用轮数
     WebSearch: # 网络搜索
       Enable: false # 是否启用网络搜索
       ApiKey: '' # Tavily Key
     FetchURL: # 链接请求
       Enable: true # 是否启用链接请求
+    Shell: # bubblewrap 沙箱 需要安装 bubblewrap
+      Enable: true # 是否启用沙箱 Shell (shell / write_file / send_file)
+      Network: true # 沙箱内是否允许联网
+      Timeout: 60 # 单条命令超时秒数
+      MaxOutput: 8000 # 返回给模型的最大输出字符数 超出时保留首尾
+      WorkDir: workspace # 持久目录根路径 其下 users/<用户id> 与 chats/<聊天id>
   WhiteList: [] # 白名单群组
   DefaultModel: '' # 默认模型
-  FallbackModel: [] # 故障转移模型 配置的模型数量不要超过 Network.Retry 的值
+  FallbackModel: [] # 故障转移模型 按顺序使用 总重试次数为 Network.Retry
   SystemPrompt: '' # 默认系统提示词
-  ExtraSystemPrompt: 'Current date: {cur_date}; time: {cur_time}; datetime: {cur_datetime},
+  ExtraSystemPrompt: 'Current date: {cur_date}; time: {cur_time}; datetime: {cur_datetime};
     timezone: {timezone}; model: {model_name}; assistant name: {assistant_name}.' # 额外系统提示词
   ReasoningEffort: auto # 默认推理预算
-  MaxContext: 100 # 最大上下文数量
+  MaxContext: 100 # 每次请求最多带上的历史消息数
   MaxFileSize: 50 # 最大文件大小 单位 MB
   AutoReply: false # 是否开启自动回复
-  WakeWord: [] # 唤醒词 仅当自动回复开启时生效
-  FileSupport: false # 允许传输文本
-  IDRecognition: # 内置身份识别
+  WakeWord: [] # 唤醒词 正则表达式 仅当自动回复开启时生效
+  FileSupport: false # 是否把文档以 file 类型直接传给模型 沙箱可用时文件总会保存到 /workspace/chat/uploads
+  IDRecognition: # 内置身份识别 仅群聊生效
     Enable: true # 是否启用内置身份识别
     Prompt: 'User messages use this format:
 
@@ -64,21 +71,29 @@ AI: # AI配置
     Format: 'name: {name}
 
       content: {content}'
-User: # 用户配置
+  Summary: # 滚动摘要
+    Enable: true # 是否开启
+    MaxMessage: 40 # 未摘要消息超过此数量时 把较早的一半压缩进摘要
+    Model: '' # 摘要模型 为空时使用对话模型 建议填一个便宜的模型
+  Memory: # 长期记忆与历史检索
+    Enable: true # 是否启用 memory_save / memory_delete / memory_search 工具
+    MaxHistory: 1000 # 每个会话在数据库中保留的历史消息上限 供检索使用
+User: # 用户配置 由 Bot 自动维护
   12345: # 用户 id
     Model: '' # 模型 为空时使用默认模型
     SystemPrompt: '' # 系统提示词 为空时使用默认系统提示词
     ReasoningEffort: '' # 推理预算 为空时使用默认推理预算
-    Context: false # 是否启用上下文
-Other: # 其他配置 
+    Context: true # 是否启用私聊上下文
+Other: # 其他配置
   Log: # 日志
     Enable: true # 是否开启日志
-    Name: Bot.log # 日志文件名称
+    Name: Bot.log # 日志文件名称 超过 10MB 自动轮转
   Intro: # /start 时 发送 Bot 简介
     Enable: true # 是否开启
     Text: 这是一个用 `Telegram Bot Api` 来提供 AI 的平台捏 ~ # 简介内容
   Password: '1145141919810' # Bot 关机密码
   AvoidJoinGroups: 0 # 防拉群功能 0为关闭 1为仅限管理员拉群 2为仅限超管拉群
+  RefreshFrequency: 5 # /prune 进度条刷新间隔 百分比
   MaxTextLength: 3000 # 单页最大文本长度
-  HideAds: false # 是否隐藏 /help 中展示的信息
-  CurrentVersion: 0 # 当前版本信息 请勿改动
+  HideAds: false # 是否隐藏 /help 末尾的项目信息
+  CurrentVersion: 0 # 当前版本信息 用于发送更新介绍 请勿改动

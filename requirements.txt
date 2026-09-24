@@ -1,8 +1,7 @@
 PyYAML
 kurigram
 aiosqlite
-nest-asyncio
 loguru
 beautifulsoup4
-curl-cffi
+curl-cffi>=0.15.0
 TgCrypto
