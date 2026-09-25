@@ -211,5 +211,5 @@ async def probe():
         logger.info('Sandbox ready (bubblewrap)')
     else:
         if os.path.exists('/.dockerenv'):
-            reason += ' (Docker 需要 security_opt: seccomp=unconfined, apparmor=unconfined, systempaths=unconfined)'
+            reason += ' (Docker 需要 --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined)'
         logger.warning(f'Sandbox unavailable, shell tool disabled: {reason}')

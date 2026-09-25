@@ -33,22 +33,21 @@ AIBot 是一个基于 `Telegram Bot API` 与 OpenAI 兼容 `/chat/completions` �
 
 ### Docker（推荐）
 
-仓库推送到 `main` 或打 `v*` 标签后，GitHub Actions 会自动构建 `linux/amd64` 与 `linux/arm64` 镜像并推送到 `ghcr.io/<用户名>/aichatbot`。
+仓库推送到 `main` 或打 `v*` 标签后，GitHub Actions 会在原生 amd64 与 arm64 runner 上分别构建镜像，合并为多架构镜像并推送到 `ghcr.io/<用户名>/aichatbot`。
 
 ```bash
-mkdir aibot && cd aibot
-curl -O https://raw.githubusercontent.com/dann2333/AIChatBot/main/docker-compose.yml
-docker compose up -d          # 首次启动会在 ./data 生成 config.yaml 模板后退出
-vim data/config.yaml          # 填写必要配置
-docker compose up -d
-docker compose logs -f
+docker run -d --name aibot --restart unless-stopped \
+  -v $PWD/data:/data -e TZ=Asia/Shanghai \
+  --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined \
+  ghcr.io/dann2333/aichatbot
 ```
 
+首次启动会在 `./data` 生成 `config.yaml` 模板，填写必要配置后执行 `docker restart aibot`（不手动重启的话，容器自动重启时也会读取新配置），用 `docker logs -f aibot` 查看日志。更新镜像：`docker pull ghcr.io/dann2333/aichatbot`，然后删除容器并用同样的命令重新创建。
+
 - 拉取镜像提示无权限时，在 GitHub 仓库的 Packages 页面把包设为 Public，或先 `docker login ghcr.io`。
-- 想自己构建：`docker compose up -d --build`。Docker Hub 访问慢时可以加 `--build-arg BASE_IMAGE=<镜像源>/python:3.12-slim`。
-- 需要更多沙箱工具时可以追加系统包：`--build-arg EXTRA_PACKAGES="nodejs ffmpeg"`。
-- `docker-compose.yml` 中的 `security_opt` 是 bubblewrap 沙箱在容器内运行所必需的，三项缺一不可；删掉后 Bot 仍能运行，只是 Shell 工具会被禁用。
-- 在 Docker 中 `/stop` 相当于重启（`restart: unless-stopped`）；要彻底停止请使用 `docker compose stop`。
+- 三个 `--security-opt` 是 bubblewrap 沙箱在容器内运行所必需的，缺一不可；去掉后 Bot 仍能运行，只是 Shell 工具会被禁用。
+- 自己构建：`docker build -t aibot .`。Docker Hub 访问慢时可加 `--build-arg BASE_IMAGE=<镜像源>/python:3.12-slim`；需要更多沙箱工具时可加 `--build-arg EXTRA_PACKAGES="nodejs ffmpeg"`。
+- 在 Docker 中 `/stop` 相当于重启（`--restart unless-stopped`）；要彻底停止请使用 `docker stop aibot`。
 
 ### 手动部署
 
