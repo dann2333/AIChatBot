@@ -1,0 +1,16 @@
+# 沙箱内预装的 Python 包（与 Bot 共用解释器，沙箱内只读可用）
+requests
+httpx
+beautifulsoup4
+lxml
+numpy
+pandas
+matplotlib
+pillow
+openpyxl
+python-docx
+pypdf
+pyyaml
+python-dateutil
+tabulate
+qrcode

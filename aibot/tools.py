@@ -55,7 +55,10 @@ DEFINITIONS = {
         "Run a bash command in a persistent Linux sandbox and return its output. "
         "The working directory /workspace/chat is shared by everyone in this chat; /workspace/user (HOME) is private to the current user "
         "and shared across chats. Both persist between calls; everything else (including /tmp) is reset after each call. "
-        "Python3 and common CLI tools are available; `pip install --user` installs into HOME. Files sent by users are saved to /workspace/chat/uploads/."),
+        "Preinstalled (do not reinstall): python3 with requests, httpx, bs4, lxml, numpy, pandas, matplotlib (CJK fonts), pillow, openpyxl, "
+        "python-docx, pypdf, pyyaml, tabulate, qrcode; node + npm; busybox, curl, wget, git, jq, sqlite3, zip/7z, dig, ping, nc. "
+        "`pip install` and `npm install -g` persist in HOME, so anything installed once stays available. "
+        "Files sent by users are saved to /workspace/chat/uploads/."),
         {"command": _str("The bash command to run.")}, ["command"]),
     "write_file": _fn("write_file", "Create or overwrite a text file in the sandbox. Relative paths are resolved against /workspace/chat.",
                       {"path": _str("File path under /workspace/chat or /workspace/user."), "content": _str("Full file content.")}, ["path", "content"]),

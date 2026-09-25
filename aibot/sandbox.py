@@ -22,7 +22,7 @@ reason = '尚未检测'
 _lock = asyncio.Semaphore(4)
 _ETC = ['/etc/resolv.conf', '/etc/hosts', '/etc/ssl', '/etc/ca-certificates', '/etc/pki', '/etc/alternatives',
         '/etc/ld.so.cache', '/etc/ld.so.conf', '/etc/ld.so.conf.d', '/etc/localtime', '/etc/nsswitch.conf',
-        '/etc/mime.types', '/etc/protocols', '/etc/services']
+        '/etc/mime.types', '/etc/protocols', '/etc/services', '/etc/fonts']
 _PATH = '/workspace/user/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
 
 
@@ -75,7 +75,11 @@ def _args(user_dir: str, chat_dir: str) -> list[str]:
              '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp',
              '--bind', user_dir, '/workspace/user', '--bind', chat_dir, '/workspace/chat', '--remount-ro', '/', '--chdir', '/workspace/chat',
              '--clearenv', '--setenv', 'HOME', '/workspace/user', '--setenv', 'USER', 'sandbox', '--setenv', 'PATH', _PATH,
-             '--setenv', 'LANG', 'C.UTF-8', '--setenv', 'TERM', 'dumb', '--setenv', 'PYTHONUNBUFFERED', '1']
+             '--setenv', 'LANG', 'C.UTF-8', '--setenv', 'TERM', 'dumb', '--setenv', 'PYTHONUNBUFFERED', '1',
+             # pip / npm 安装的包都落到 HOME，跨调用持久保留
+             '--setenv', 'PIP_USER', '1', '--setenv', 'PIP_DISABLE_PIP_VERSION_CHECK', '1',
+             '--setenv', 'NPM_CONFIG_PREFIX', '/workspace/user/.local', '--setenv', 'NODE_PATH', '/workspace/user/.local/lib/node_modules',
+             '--setenv', 'MATPLOTLIBRC', '/usr/local/etc/matplotlibrc']
     return args
 
 

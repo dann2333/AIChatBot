@@ -46,7 +46,7 @@ docker run -d --name aibot --restart unless-stopped \
 
 - 拉取镜像提示无权限时，在 GitHub 仓库的 Packages 页面把包设为 Public，或先 `docker login ghcr.io`。
 - 三个 `--security-opt` 是 bubblewrap 沙箱在容器内运行所必需的，缺一不可；去掉后 Bot 仍能运行，只是 Shell 工具会被禁用。
-- 自己构建：`docker build -t aibot .`。Docker Hub 访问慢时可加 `--build-arg BASE_IMAGE=<镜像源>/python:3.12-slim`；需要更多沙箱工具时可加 `--build-arg EXTRA_PACKAGES="nodejs ffmpeg"`。
+- 自己构建：`docker build -t aibot .`。Docker Hub 访问慢时可加 `--build-arg BASE_IMAGE=<镜像源>/python:3.12-slim`；需要更多沙箱工具时可加 `--build-arg EXTRA_PACKAGES="ffmpeg imagemagick"`。
 - 在 Docker 中 `/stop` 相当于重启（`--restart unless-stopped`）；要彻底停止请使用 `docker stop aibot`。
 
 ### 手动部署
@@ -155,7 +155,12 @@ Bot 每 3 秒检查一次 `config.yaml`，文件被修改后会自动重载，�
 | `/workspace/chat/uploads` | | 用户发送的图片和文件会自动保存到这里 |
 | `/tmp` | | 临时目录，每次命令结束后清空 |
 
-- 宿主机的 `/usr` 等系统目录以只读方式挂载，所以系统里装了什么（python3、curl、git……）沙箱里就能用什么；Bot 的代码、配置、数据库和其他目录在沙箱中都不可见。
+- Docker 镜像已预装常用环境，模型无需再自己安装：
+  - Python：requests、httpx、beautifulsoup4、lxml、numpy、pandas、matplotlib（已配置中文字体）、pillow、openpyxl、python-docx、pypdf、pyyaml、tabulate、qrcode（见 `sandbox-requirements.txt`）
+  - Node.js 与 npm
+  - busybox、curl、wget、git、jq、sqlite3、zip/unzip/7z/xz、dig、ping、nc、tree、file、bc、vim
+- 在沙箱中 `pip install` 与 `npm install -g` 默认安装到 `/workspace/user`，装一次以后一直可用，不会随命令结束丢失。
+- 宿主机的 `/usr` 等系统目录以只读方式挂载，所以系统里装了什么沙箱里就能用什么；Bot 的代码、配置、数据库和其他目录在沙箱中都不可见。手动部署时可参照 `Dockerfile` 安装同样的系统包，并执行 `pip install -r sandbox-requirements.txt`。
 - 每条命令都在独立的命名空间中运行，结束或超时（`AI.Tool.Shell.Timeout`，默认 60 秒）后，沙箱内的所有进程都会被清理。
 - `AI.Tool.Shell.Network` 控制沙箱内能否联网（默认允许）；`MaxOutput` 控制返回给模型的输出长度；`WorkDir` 是持久目录的根路径。
 - 所有能与 Bot 对话的人（包括白名单群成员）都能间接使用 Shell。沙箱只隔离文件系统与进程，不限制磁盘与 CPU 用量，请据此决定是否开启以及是否允许联网。
