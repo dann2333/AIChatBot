@@ -41,7 +41,7 @@ _TREE = {
         }),
         'Tool': ('工具调用', {
             'Enable': ('是否启用工具', 'bool', True),
-            'MaxToolCall': ('最大工具调用轮数', 'int', 5),
+            'MaxToolCall': ('最大工具调用轮数', 'int', 10),
             'WebSearch': ('网页搜索', {
                 'Enable': ('是否启用网页搜索', 'bool', False),
                 'ApiKey': ('Tavily API密钥', 'str', '', HIDE),

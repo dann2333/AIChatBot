@@ -124,7 +124,7 @@ AI:
 | `Network.Timeout` / `Retry` | 外部请求的超时（流式请求为连接超时，另有 120 秒空闲超时）与重试次数。 |
 | `AI.SystemPrompt` | 全局系统提示词。 |
 | `AI.ExtraSystemPrompt` | 每次请求附加的动态提示词，可使用 `{cur_date}`、`{cur_time}`、`{cur_datetime}`、`{timezone}`、`{model_name}`、`{assistant_name}`。 |
-| `AI.ReasoningEffort` | 默认推理预算：`auto`、`none`、`minimal`、`low`、`medium`、`high`、`xhigh`。 |
+| `AI.ReasoningEffort` | 默认推理预算：`auto`（不发送）、`none`、`minimal`、`low`、`medium`、`high`、`xhigh`。部分模型在 `/chat/completions` 下不允许推理与工具同时使用，Bot 会按服务端报错自动降级（带工具时用 `none`，不认识的参数直接丢弃）并记住，无需手动处理。 |
 | `AI.MaxContext` | 每次请求最多带上的历史消息数。 |
 | `AI.Summary` | 滚动摘要，见下文。 |
 | `AI.Memory` | 长期记忆与历史检索，见下文。 |
@@ -190,7 +190,7 @@ Bot 每 3 秒检查一次 `config.yaml`，文件被修改后会自动重载，�
 | `shell` / `write_file` / `send_file` | `AI.Tool.Shell.Enable` | 沙箱，见上文 |
 | `memory_save` / `memory_delete` / `memory_search` | `AI.Memory.Enable` | 记忆，见上文 |
 
-`AI.Tool.MaxToolCall` 限制一次对话的最大工具调用轮数，达到上限后模型必须直接作答。
+`AI.Tool.MaxToolCall` 限制一次对话的最大工具调用轮数（默认 10，同一轮的并行调用只算一次）。Bot 会提前告诉模型这个预算，用完后明确通知并禁止继续调用，模型必须直接作答；工具参数过长被截断时也会如实告诉模型，让它分段重试。
 
 `AI.FileSupport` 开启后，文档还会以 `file` 类型直接发给模型（需要模型服务支持）；不开启时，只要沙箱可用，模型也能在沙箱中读取用户上传的文件。
 

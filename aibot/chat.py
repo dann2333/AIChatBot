@@ -340,6 +340,33 @@ async def build_messages(req: Request, model: str, parts: list, notes: list, rep
     return messages, user_text + ("\n[图片]" * sum(p['type'] == 'image_url' for p in parts))
 
 
+# 轮数用完后告知模型；已经调用过工具的回复里，若模型把调用写成了文本（特殊 token / 伪标签），在这里截掉
+LIMIT_NOTICE = ("\n\n[System notice: the tool call limit is reached and tools are now disabled. Do not call any tool or write tool-call syntax. "
+                "Give your final answer to the user now using the results above; if the task is unfinished, say what is done and what remains.]")
+BAD_ARGS = ("Error: the tool call arguments are not valid JSON (the output was probably cut off by the length limit), so nothing was executed. "
+            "Retry with smaller arguments, e.g. write a large file in several parts (cat >> file) or generate it with a short script.")
+LEAK = re.compile(r"<[|｜][\w▁.\-]{1,40}[|｜]>|\bto=functions\.\w+|<(?:tool_call|function_calls?|tool_use|invoke)[\s>]")
+
+
+def strip_leak(text: str) -> str:
+    match = LEAK.search(text)
+    return text[:match.start()].rstrip() if match else text
+
+
+def tool_hint(limit: int) -> str:
+    return (f"Tool budget: at most {limit} tool-call rounds per reply (parallel calls in one round count once). Be economical: combine steps "
+            "(e.g. one shell command with &&), keep each tool call short and write large files in several smaller parts.")
+
+
+def parse_args(raw: str) -> dict | None:
+    """工具参数 -> dict；不是合法 JSON 对象（如被长度上限截断）返回 None"""
+    try:
+        args = json.loads(raw or '{}')
+    except ValueError:
+        return None
+    return args if isinstance(args, dict) else None
+
+
 def model_candidates(uid) -> list:
     configured = model_map()
     first = user_conf(uid)['Model']
@@ -368,20 +395,25 @@ async def run(req: Request, sink):
         if stopped():
             return await sink.fail("❌ 已停止 ~")
         messages, history_text = await build_messages(req, models[0], parts, notes, reply)
+        limit = config['AI']['Tool']['MaxToolCall']
         payload = {"messages": messages}
-        if tool_defs := tools.available(req.tool_ctx):
-            payload.update(tools=tool_defs, tool_choice="auto")
+        if (tool_defs := tools.available(req.tool_ctx)) and limit > 0:
+            payload['tools'] = tool_defs
+            if messages[0]['role'] == 'system':
+                messages[0]['content'] += "\n\n" + tool_hint(limit)
+            else:
+                messages.insert(0, {"role": "system", "content": tool_hint(limit)})
         effort = user_conf(req.user.id)['ReasoningEffort'] or config['AI']['ReasoningEffort']
         if effort not in ('', 'auto'):
             payload['reasoning_effort'] = effort
         logger.info(f"User {req.user.id} chat in {req.conv} with {models[0]}")
 
         await sink.status('⏳ 思考中 ...')
-        answers, text, attempt, edits = [], '', 0, 0
-        for round_ in range(config['AI']['Tool']['MaxToolCall'] + 1):
-            if round_ == config['AI']['Tool']['MaxToolCall']:
-                payload.pop('tools', None)
-                payload.pop('tool_choice', None)
+        answers, text, attempt, edits, leaked = [], '', 0, 0, False
+        for round_ in range(limit + 1):
+            final = round_ == limit    # 轮数用完：禁止再调用工具，模型必须直接作答
+            if final and 'tools' in payload:
+                payload['tool_choice'] = 'none'
             while True:
                 buf = {'text': '', 'pending': '', 'last': 0}
 
@@ -392,10 +424,11 @@ async def run(req: Request, sink):
                     now = time.time()
                     if (sink.limited and edits >= config['AI']['ChunkStrategy']['MaxEdit']) or now - buf['last'] < get_delay(edits):
                         return
-                    if re.search(config['AI']['ChunkStrategy']['Rule'], buf['pending']):
+                    shown = strip_leak(buf['text']) if round_ else buf['text']
+                    if shown and re.search(config['AI']['ChunkStrategy']['Rule'], buf['pending']):
                         buf['last'], buf['pending'] = now, ''
                         edits += 1
-                        await sink.stream(buf['text'])
+                        await sink.stream(shown)
 
                 model = models[attempt % len(models)]
                 try:
@@ -407,26 +440,38 @@ async def run(req: Request, sink):
                     if attempt > config['Network']['Retry'] or stopped():
                         return await sink.fail(f"❌ 获取消息失败呢 ~\n\n错误: `{str(e)[:300]}`")
                     await sink.status(f"⏳ 重试中 ({attempt}/{config['Network']['Retry']}) ...")
-            if stopped() or not calls:
+            if round_ and (clean := strip_leak(text)) != text:
+                logger.warning(f"Tool-call markup leaked into the reply, cut: {text[len(clean):][:200]!r}")
+                text, leaked = clean, True
+            if final or stopped() or not calls:
                 break
             if text:
                 answers.append(text)
                 await sink.commit(text)
-            payload['messages'].append({"role": "assistant", "content": text or None, "tool_calls": calls})
+            parsed = []
             for call in calls:
+                args = parse_args(call['function']['arguments'])
+                if args is None:
+                    call['function']['arguments'] = '{}'   # 历史里保留合法 JSON，严格的服务会校验
+                parsed.append((call, args))
+            payload['messages'].append({"role": "assistant", "content": text or None, "tool_calls": calls})
+            for call, args in parsed:
                 if stopped():
                     break
-                try:
-                    args = json.loads(call['function']['arguments'] or '{}')
-                    args = args if isinstance(args, dict) else {}
-                except ValueError:
-                    args = {}
-                await sink.status(tools.status_text(call['function']['name'], args))
-                result = await tools.execute(call['function']['name'], args, req.tool_ctx)
+                if args is None:
+                    logger.warning(f"Invalid arguments for tool {call['function']['name']}")
+                    result = BAD_ARGS
+                else:
+                    await sink.status(tools.status_text(call['function']['name'], args))
+                    result = await tools.execute(call['function']['name'], args, req.tool_ctx)
                 payload['messages'].append({"role": "tool", "tool_call_id": call['id'], "content": result})
+            if stopped():
+                break
+            if round_ + 1 == limit:
+                payload['messages'][-1]['content'] += LIMIT_NOTICE
             text = ''
         if not text:
-            return await sink.fail("✔ 已停止生成 ~" if stopped() else "❌ 获取消息失败呢 ~")
+            return await sink.fail("✔ 已停止生成 ~" if stopped() else "❌ 模型返回了无法识别的工具调用，请重试 ~" if leaked else "❌ 获取消息失败呢 ~")
         await sink.finish(text)
         if req.history:
             keep = config['AI']['Memory']['MaxHistory']

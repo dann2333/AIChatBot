@@ -34,7 +34,7 @@ AI: # AI配置
     MaxEdit: 40 # 群聊 / 内联消息最多编辑次数 私聊草稿不受限制
   Tool: # 工具配置
     Enable: true # 是否启用工具调用
-    MaxToolCall: 5 # 最大工具调用轮数
+    MaxToolCall: 10 # 最大工具调用轮数 用完后模型会被明确告知并必须直接作答
     WebSearch: # 网络搜索
       Enable: false # 是否启用网络搜索
       ApiKey: '' # Tavily Key
