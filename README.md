@@ -72,7 +72,7 @@ python3 main.py                      # 首次运行会生成 config.yaml 模板
 - `SuAdmin`：超级管理员的 Telegram 用户 ID 列表。
 - `Bot.ApiId` 与 `Bot.ApiHash`：在 <https://my.telegram.org/apps> 创建应用后获取。
 - `Bot.Token`：在 [@BotFather](https://t.me/BotFather) 创建 Bot 后获取。
-- `AI.Vendor` 与 `AI.DefaultModel`：至少配置一个模型提供商，并把其中某个模型填入 `AI.DefaultModel`。模型服务需要支持 OpenAI 兼容的 `/chat/completions` 接口与流式响应。
+- `AI.Vendor` 与 `AI.DefaultModel`：至少配置一个模型提供商，并把其中某个模型填入 `AI.DefaultModel`。模型服务需要支持 OpenAI 兼容的 `/chat/completions`（或 `/responses`）接口与流式响应。
 
 ```yaml
 SuAdmin:
@@ -93,7 +93,7 @@ AI:
 
 ### 模型提供商
 
-`BaseUrl` 填写 API 根地址，程序会自动拼接 `/chat/completions`。不同提供商中有同名模型时，可以给模型名加任意前缀来区分，实际请求时前缀会自动去除：
+`BaseUrl` 填写 API 根地址，程序会自动拼接 `/chat/completions`（或 `/responses`，见下）。不同提供商中有同名模型时，可以给模型名加任意前缀来区分，实际请求时前缀会自动去除：
 
 ```yaml
 AI:
@@ -113,6 +113,19 @@ AI:
   - VendorB:gpt-5.5     # 请求失败时按顺序切换，总重试次数由 Network.Retry 决定
 ```
 
+**Responses 接口**：部分模型（如 gpt-5 系列）在 `/chat/completions` 下不能同时使用推理与函数工具，服务端会返回 `use /v1/responses`。Bot 遇到这类报错会自动改走 `/v1/responses` 并记住（按 `BaseUrl` + 模型，重启后重新探测），推理和工具都会保留，多轮工具调用之间的推理项也会（以加密形式、无状态地）回传。也可以在提供商下手动指定，指定后不再自动切换：
+
+```yaml
+AI:
+  Vendor:
+    MyVendor:
+      BaseUrl: https://example.com/v1
+      Key: sk-xxxxxxxx
+      Api: responses    # chat / responses，默认 chat
+```
+
+服务不认识的可选参数（如 `reasoning_effort`、`include`）会在报错后自动丢弃并记住。
+
 ### 常用可选配置
 
 | 配置项 | 说明 |
@@ -124,7 +137,7 @@ AI:
 | `Network.Timeout` / `Retry` | 外部请求的超时（流式请求为连接超时，另有 120 秒空闲超时）与重试次数。 |
 | `AI.SystemPrompt` | 全局系统提示词。 |
 | `AI.ExtraSystemPrompt` | 每次请求附加的动态提示词，可使用 `{cur_date}`、`{cur_time}`、`{cur_datetime}`、`{timezone}`、`{model_name}`、`{assistant_name}`。 |
-| `AI.ReasoningEffort` | 默认推理预算：`auto`（不发送）、`none`、`minimal`、`low`、`medium`、`high`、`xhigh`。部分模型在 `/chat/completions` 下不允许推理与工具同时使用，Bot 会按服务端报错自动降级（带工具时用 `none`，不认识的参数直接丢弃）并记住，无需手动处理。 |
+| `AI.ReasoningEffort` | 默认推理预算：`auto`（不发送）、`none`、`minimal`、`low`、`medium`、`high`、`xhigh`。 |
 | `AI.MaxContext` | 每次请求最多带上的历史消息数。 |
 | `AI.Summary` | 滚动摘要，见下文。 |
 | `AI.Memory` | 长期记忆与历史检索，见下文。 |

@@ -1,11 +1,12 @@
 # -*- coding: UTF-8 -*-
-"""OpenAI 兼容 /chat/completions 客户端：流式输出、工具调用收集、故障转移"""
+"""OpenAI 兼容客户端：/chat/completions 与 /responses 两种接口、流式输出、工具调用收集、按报错自动适配"""
 
 import json
 from loguru import logger
 from curl_cffi.requests import AsyncSession
 from .config import config, model_map
 from .tools import get_proxy
+from . import responses
 
 STREAM_IDLE_TIMEOUT = 120
 
@@ -16,61 +17,66 @@ class LLMError(Exception):
         self.status, self.body = status, body
 
 
-# 不同服务对 OpenAI 参数的支持不一，遇到 400 时按报错自动适配，并记住（按 接口+模型），之后的请求直接带上修正
+# 不同服务对 OpenAI 接口的支持不一，遇到报错时自动适配，并记住（按 接口地址+模型），之后的请求直接带上修正：
+#   服务端提示要用 /v1/responses（如 gpt-5 系列在 chat 接口下不能同时用推理与工具）-> 改走 Responses 接口，推理和工具都保留
+#   服务端不认识某个可选参数 -> 丢弃该参数
 _quirks: dict = {}
-OPTIONAL_PARAMS = ('reasoning_effort', 'tool_choice', 'parallel_tool_calls')
+# 请求体里的可选参数 -> 报错信息里除 param 字段外可能出现的写法
+OPTIONAL = {'reasoning_effort': ('reasoning_effort',), 'reasoning': ('reasoning.effort',), 'tool_choice': ('tool_choice',), 'include': (), 'store': ()}
 
 
-def _diagnose(payload: dict, err: LLMError) -> tuple | None:
-    """从 400 报错推断需要的修正：('effort_none',) 或 ('drop', 参数名)；无法适配返回 None"""
-    if err.status != 400:
-        return None
+def _diagnose(api: str, body: dict, err: LLMError, can_switch: bool) -> tuple | None:
+    """从报错推断修正：('responses',) 或 ('drop', 参数名)；无法适配返回 None"""
     try:
         info = json.loads(err.body)['error']
     except (ValueError, KeyError, TypeError):
         info = {}
     info = info if isinstance(info, dict) else {}
     message = str(info.get('message') or err.body).lower()
-    # 例如 gpt-5 系列: 推理与 function tools 不能同时使用，只有 reasoning_effort=none 才能带工具
-    if payload.get('tools') and payload.get('reasoning_effort') not in (None, 'none') and 'reasoning_effort' in message and "'none'" in message:
-        return ('effort_none',)
-    for key in OPTIONAL_PARAMS:
-        if key in payload and (info.get('param') == key or key in message):
+    if api == 'chat' and can_switch and err.status in (400, 404) and '/responses' in message:
+        return ('responses',)
+    if err.status != 400:
+        return None
+    param = str(info.get('param') or '')
+    for key, hints in OPTIONAL.items():
+        if key in body and (param.split('.')[0] == key or any(h in message for h in hints)):
             return ('drop', key)
     return None
 
 
 def _learn(key: tuple, fix: tuple) -> bool:
-    quirk = _quirks.setdefault(key, {'effort_none': False, 'drop': set()})
-    if fix[0] == 'effort_none':
-        new, quirk['effort_none'] = not quirk['effort_none'], True
+    quirk = _quirks.setdefault(key, {'responses': False, 'drop': set()})
+    if fix[0] == 'responses':
+        new, quirk['responses'] = not quirk['responses'], True
     else:
         new = fix[1] not in quirk['drop']
         quirk['drop'].add(fix[1])
     return new
 
 
-def _adapt(key: tuple, payload: dict) -> dict:
+def _adapt(key: tuple, body: dict) -> dict:
     quirk = _quirks.get(key)
     if not quirk:
-        return payload
-    out = {k: v for k, v in payload.items() if k not in quirk['drop']}
-    if 'tool_choice' in quirk['drop'] and payload.get('tool_choice') == 'none':
+        return body
+    out = {k: v for k, v in body.items() if k not in quirk['drop']}
+    if 'tool_choice' in quirk['drop'] and body.get('tool_choice') == 'none':
         out.pop('tools', None)    # 不支持 tool_choice=none 的服务：禁用工具时直接不给工具
-    if quirk['effort_none'] and out.get('tools') and 'reasoning_effort' in out:
-        out['reasoning_effort'] = 'none'
     return out
 
 
-def resolve(name: str) -> tuple[str, dict, str]:
-    """模型名 -> (接口地址, 请求头, 实际模型名)；名称中的 `前缀:` 会被去掉"""
+def resolve(name: str) -> tuple[str, dict, str, str]:
+    """模型名 -> (API 根地址, 请求头, 实际模型名, 配置的接口类型)；名称中的 `前缀:` 会被去掉。
+    提供商的 Api 可填 chat / responses，不填则默认 chat，并在服务端提示需要时自动切换到 responses"""
     vendor = model_map().get(name)
     if vendor is None:
         raise LLMError(f"模型 {name} 未配置")
     conf = config['AI']['Vendor'][vendor]
-    url = f"{conf['BaseUrl'].rstrip('/')}/chat/completions"
     headers = {"Authorization": f"Bearer {conf.get('Key', '')}", "Content-Type": "application/json"}
-    return url, headers, name.split(':', 1)[1] if ':' in name else name
+    return conf['BaseUrl'].rstrip('/'), headers, name.split(':', 1)[1] if ':' in name else name, str(conf.get('Api') or '').lower()
+
+
+def pick_api(key: tuple, configured: str) -> str:
+    return configured if configured in ('chat', 'responses') else 'responses' if _quirks.get(key, {}).get('responses') else 'chat'
 
 
 def display_name(name: str) -> str:
@@ -154,31 +160,68 @@ class ToolCollector:
         return out
 
 
-async def stream(model: str, payload: dict, on_text=None, should_stop=None) -> tuple[str, list]:
-    """流式请求，返回 (文本, 工具调用)。on_text(增量) 为协程回调。参数不被服务接受时自动适配后重试"""
-    url, headers, real_name = resolve(model)
-    key = (url, real_name)
-    payload = {**payload, "model": real_name, "stream": True}
+class ChatReader:
+    """/chat/completions 的流式事件 -> (文本, 工具调用, 附加字段)"""
+
+    def __init__(self, valid_names: set):
+        self.collector, self.text, self.error = ToolCollector(valid_names), '', ''
+
+    async def feed(self, event: dict, on_text=None):
+        if event.get("error"):
+            self.error = str(event["error"])
+            return
+        choices = event.get("choices") or []
+        if not choices:
+            return
+        delta = choices[0].get("delta") or {}
+        for tc in delta.get("tool_calls") or []:
+            self.collector.add(tc)
+        if content := delta.get("content"):
+            self.text += content
+            if on_text:
+                await on_text(content)
+
+    def result(self) -> tuple[str, list, dict]:
+        return self.text, self.collector.result(), {}
+
+
+def _chat_body(payload: dict) -> dict:
+    # 以 _ 开头的是 Responses 专用的附加字段（如加密的推理项），chat 请求里不带
+    messages = [{k: v for k, v in m.items() if not k.startswith('_')} for m in payload['messages']]
+    return {**payload, "messages": messages, "stream": True}
+
+
+async def stream(model: str, payload: dict, on_text=None, should_stop=None) -> tuple[str, list, dict]:
+    """流式请求，返回 (文本, 工具调用, assistant 消息的附加字段)。on_text(增量) 为协程回调。
+    payload 为 chat 格式；走 Responses 接口时会自动转换，附加字段需原样放进对应的 assistant 消息，推理才能在工具调用间延续"""
+    base, headers, real_name, configured = resolve(model)
+    key = (base, real_name)
+    payload = {**payload, "model": real_name}
     while True:
-        sent = _adapt(key, payload)
+        api = pick_api(key, configured)
+        if api == 'responses':
+            url, body, reader = f"{base}/responses", {**responses.to_request(payload), "stream": True}, responses.Reader()
+            body = _adapt(key, body)
+        else:
+            url, body = f"{base}/chat/completions", _adapt(key, _chat_body(payload))
+            reader = ChatReader({t["function"]["name"] for t in body.get("tools", [])})
         try:
-            return await _stream_once(url, headers, sent, on_text, should_stop)
+            return await _run(url, headers, body, reader, on_text, should_stop)
         except LLMError as e:
-            fix = _diagnose(sent, e)
+            fix = _diagnose(api, body, e, not configured)
             if not fix or not _learn(key, fix):
                 raise
             logger.info(f"Adapting requests to {real_name}: {fix} ({str(e)[:200]})")
 
 
-async def _stream_once(url: str, headers: dict, payload: dict, on_text, should_stop) -> tuple[str, list]:
-    valid = {t["function"]["name"] for t in payload.get("tools", [])}
-    collector, text, pending = ToolCollector(valid), "", ""
+async def _run(url: str, headers: dict, body: dict, reader, on_text, should_stop) -> tuple[str, list, dict]:
+    pending = ""
     async with AsyncSession() as session:
-        async with session.stream("POST", url, headers={**headers, "Accept": "text/event-stream"}, json=payload,
+        async with session.stream("POST", url, headers={**headers, "Accept": "text/event-stream"}, json=body,
                                   timeout=(config['Network']['Timeout'], STREAM_IDLE_TIMEOUT), impersonate="chrome", proxy=get_proxy()) as resp:
             if resp.status_code >= 400:
-                body = await resp.atext()
-                raise LLMError(f"HTTP {resp.status_code}: {body[:500]}", resp.status_code, body)
+                text = await resp.atext()
+                raise LLMError(f"HTTP {resp.status_code}: {text[:500]}", resp.status_code, text)
             async for chunk in resp.aiter_content():
                 if should_stop and should_stop():
                     break
@@ -195,30 +238,33 @@ async def _stream_once(url: str, headers: dict, payload: dict, on_text, should_s
                         event = json.loads(data)
                     except ValueError:
                         continue
-                    if event.get("error"):
-                        raise LLMError(str(event["error"])[:500])
-                    choices = event.get("choices") or []
-                    if not choices:
-                        continue
-                    delta = choices[0].get("delta") or {}
-                    for tc in delta.get("tool_calls") or []:
-                        collector.add(tc)
-                    if content := delta.get("content"):
-                        text += content
-                        if on_text:
-                            await on_text(content)
-    return text, collector.result()
+                    await reader.feed(event, on_text)
+                    if reader.error:
+                        raise LLMError(reader.error[:500])
+    return reader.result()
 
 
-async def complete(model: str, messages: list, timeout: float = 120, **extra) -> str:
+async def complete(model: str, messages: list, timeout: float = 120) -> str:
     """非流式请求，返回文本"""
-    url, headers, real_name = resolve(model)
-    async with AsyncSession() as session:
-        resp = await session.post(url, headers=headers, json={"model": real_name, "messages": messages, **extra},
-                                  timeout=timeout, impersonate="chrome", proxy=get_proxy())
-    if resp.status_code >= 400:
-        raise LLMError(f"HTTP {resp.status_code}: {resp.text[:500]}")
+    base, headers, real_name, configured = resolve(model)
+    key = (base, real_name)
+    while True:
+        api = pick_api(key, configured)
+        if api == 'responses':
+            url, body = f"{base}/responses", responses.to_request({"model": real_name, "messages": messages})
+            body.pop('include')
+        else:
+            url, body = f"{base}/chat/completions", {"model": real_name, "messages": messages}
+        async with AsyncSession() as session:
+            resp = await session.post(url, headers=headers, json=_adapt(key, body), timeout=timeout, impersonate="chrome", proxy=get_proxy())
+        if resp.status_code < 400:
+            break
+        err = LLMError(f"HTTP {resp.status_code}: {resp.text[:500]}", resp.status_code, resp.text)
+        fix = _diagnose(api, body, err, not configured)
+        if not fix or not _learn(key, fix):
+            raise err
     try:
-        return resp.json()["choices"][0]["message"]["content"] or ""
+        data = resp.json()
+        return responses.extract_text(data) if api == 'responses' else data["choices"][0]["message"]["content"] or ""
     except (ValueError, KeyError, IndexError, TypeError):
         raise LLMError(f"无法解析的响应: {resp.text[:500]}")

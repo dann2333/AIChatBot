@@ -432,7 +432,7 @@ async def run(req: Request, sink):
 
                 model = models[attempt % len(models)]
                 try:
-                    text, calls = await llm.stream(model, payload, on_text, stopped)
+                    text, calls, extra = await llm.stream(model, payload, on_text, stopped)
                     break
                 except Exception as e:
                     attempt += 1
@@ -454,7 +454,7 @@ async def run(req: Request, sink):
                 if args is None:
                     call['function']['arguments'] = '{}'   # 历史里保留合法 JSON，严格的服务会校验
                 parsed.append((call, args))
-            payload['messages'].append({"role": "assistant", "content": text or None, "tool_calls": calls})
+            payload['messages'].append({"role": "assistant", "content": text or None, "tool_calls": calls, **extra})
             for call, args in parsed:
                 if stopped():
                     break
