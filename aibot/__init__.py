@@ -1,7 +1,7 @@
 # -*- coding: UTF-8 -*-
 
-VERSION = "2.0.2"
-VERSION_ID = 2026110702
+VERSION = "2.0.3"
+VERSION_ID = 2026110703
 VERSION_SOURCE = "Official"
 
 # 版本更新介绍：启动时会把比 Other.CurrentVersion 新的条目发给超管
@@ -21,7 +21,11 @@ CHANGELOG = {
         "- `AI.Tool.MaxToolCall` 默认值提高到 10"
     ),
     2026110702: (
-        "- 新增 OpenAI Responses 接口 (`/v1/responses`) 支持：模型在 chat 接口下不能同时使用推理与工具时（如 gpt-5 系列）自动切换，推理和工具都保留\n"
-        "- 提供商可用 `Api: responses` 手动指定接口类型"
+        "- 新增 OpenAI Responses 接口 (`/v1/responses`) 支持：推理和工具可同时使用（如 gpt-5 系列）\n"
+        "- 提供商可用 `Api` 指定接口类型"
+    ),
+    2026110703: (
+        "- 默认改用 Responses 接口 (`/v1/responses`)，推理与工具可同时使用\n"
+        "- 服务只支持 `/chat/completions` 时，在提供商下设置 `Api: chat`"
     ),
 }

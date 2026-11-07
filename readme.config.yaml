@@ -20,9 +20,9 @@ Network: # 网络配置
 AI: # AI配置
   Vendor: # 模型提供商
     FuckCat: # 提供商名称
-      BaseUrl: https://example.com/v1 # 提供商地址 程序会拼接 /chat/completions 或 /responses
+      BaseUrl: https://example.com/v1 # 提供商地址 程序会拼接 /responses 或 /chat/completions
       Key: sk-12345 # 密钥
-      Api: '' # 可选 chat / responses 不填默认 chat 服务端提示需要 /v1/responses 时会自动切换并记住
+      Api: '' # 可选 responses / chat 默认 responses 如果服务只支持 /chat/completions 请填 chat
       Model: # 模型
       - gpt-5.5
       - VENDOR:gpt-5.5 # 当配置重名的模型时 需用冒号作为前缀来区分
