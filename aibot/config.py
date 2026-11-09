@@ -141,6 +141,8 @@ def cast(path: str, type_: str, value):
             return float(value)
         if type_ == 'str':
             return '' if value is None else str(value)
+        if type_ == 'list' and isinstance(value, (str, int, float)) and not isinstance(value, bool):
+            return [value] if value != '' else []    # 单个值也接受，等同于只有一项的列表
         if type_ in ('list', 'dict'):
             if not isinstance(value, list if type_ == 'list' else dict):
                 raise ValueError

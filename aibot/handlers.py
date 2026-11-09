@@ -102,6 +102,8 @@ async def stats_text(uid: int, chat_id: int, conv: str) -> str:
     if is_su(uid):
         lines += ["", f"超管数量: `{len(set(config['SuAdmin']))}`", f"管理数量: `{len(set(config['Admin']) - set(config['SuAdmin']))}`",
                   f"模型数量: `{len(model_map())}`", f"群组数量: `{len(config['AI']['WhiteList'])}`"]
+        if note := privacy_note():
+            lines += ["", note]
     if can_chat(uid, chat_id):
         settings, tool = user_conf(uid), config['AI']['Tool']
         lines += ["", f"当前对话数量: `{await db.count(conv)}`", f"长期记忆数量: `{len(await db.list_memories(f'user:{uid}'))}`",
@@ -113,6 +115,16 @@ async def stats_text(uid: int, chat_id: int, conv: str) -> str:
                   f"长期记忆: {mark(tool['Enable'] and config['AI']['Memory']['Enable'])}", f"滚动摘要: {mark(config['AI']['Summary']['Enable'])}",
                   f"文件直传: {mark(config['AI']['FileSupport'])}"]
     return "\n".join(lines)
+
+
+def privacy_note() -> str:
+    """群聊隐私模式开启时，Bot 收不到群里不带 @ 的普通消息，触发词前缀和唤醒词在群聊里就不会生效"""
+    if getattr(chat.me, 'can_read_all_group_messages', None) is not False:
+        return ''
+    if not config['AI']['TriggerPrefix'] and not (config['AI']['AutoReply'] and config['AI']['WakeWord']):
+        return ''
+    return ("⚠️ Bot 的群聊隐私模式未关闭，收不到群里不带 @ 的普通消息，触发词前缀 / 唤醒词在群聊中不会生效（私聊不受影响）。"
+            "请在 @BotFather 执行 /setprivacy 选择 Disable，然后把 Bot 移出群再重新拉入（设为群管理员也可以）。")
 
 
 def model_panel(uid: int, page: int = 1, closable: bool = True) -> tuple[str, InlineKeyboardMarkup]:
@@ -562,16 +574,17 @@ async def trigger(client, message, text: str):
 @on(MessageHandler)
 async def auto_reply(client, message):
     """不带 /chat 的对话入口。已注册的指令由前面的指令处理器先处理，不会走到这里。
-    私聊直接对话；触发词前缀在任何聊天里都生效；群聊的 @提及 / 回复 Bot / 唤醒词需要 AI.AutoReply"""
-    if not message.from_user or not can_chat(message.from_user.id, message.chat.id):
+    触发词前缀在任何聊天里都生效，且不检查发送者权限（访客模式和内联模式仍会检查）；
+    其余入口需要有对话权限：私聊直接对话；群聊的 @提及 / 回复 Bot / 唤醒词还需要 AI.AutoReply"""
+    if not message.from_user:
         return
     text = chat.safe_text(message.text or message.caption)
     if (not text and not (message.photo or message.document or message.sticker)) or (message.media_group_id and not text):
         return    # 没有内容；相册里没有说明文字的图片不单独触发，避免同一个相册触发多次
     if (rest := match_prefix(text)) is not None:
         return spawn(trigger(client, message, rest))
-    if text.startswith('/'):
-        return    # 以 / 开头的都是指令（包括未注册的、属于其他 Bot 的），不当作对话内容
+    if not can_chat(message.from_user.id, message.chat.id) or text.startswith('/'):
+        return    # 无权限；以 / 开头的都是指令（包括未注册的、属于其他 Bot 的），不当作对话内容
     private = message.chat.type == pyrogram.enums.ChatType.PRIVATE
     if not private and not config['AI']['AutoReply']:
         return

@@ -150,7 +150,7 @@ async def main():
         logger.info('Bot Start')
         chat.me = await app.get_me()
         await handlers.refresh(app)
-        await notify_su(app, "`Bot` 启动啦 ~" + version_notes())
+        await notify_su(app, "`Bot` 启动啦 ~" + version_notes() + (f"\n\n{note}" if (note := handlers.privacy_note()) else ""))
         broken = asyncio.Event()
         watchers = [asyncio.create_task(watch_config(app)), asyncio.create_task(watch_connection(app, broken))]
         waiting = [asyncio.create_task(pyrogram.idle()), asyncio.create_task(broken.wait())]   # 收到停止信号，或连接失效
