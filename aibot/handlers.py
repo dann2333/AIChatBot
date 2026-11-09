@@ -16,7 +16,7 @@ from pyrogram.types import (BotCommand, InlineKeyboardButton, InlineKeyboardMark
                             InputTextMessageContent, ReplyParameters)
 from loguru import logger
 from . import VERSION, VERSION_ID, VERSION_SOURCE
-from .config import config, user_conf, set_user, is_admin, is_su, can_chat, model_map, USER_DEFAULT
+from .config import config, user_conf, set_user, is_admin, is_su, can_chat, allowed, model_map, USER_DEFAULT
 from .chat import spawn
 from . import chat, db, llm, sandbox, panel
 
@@ -51,7 +51,7 @@ def require(level):
             if not message.from_user:
                 return
             uid = message.from_user.id
-            ok = {'chat': lambda: can_chat(uid, message.chat.id), 'admin': lambda: is_admin(uid), 'su': lambda: is_su(uid)}[level]()
+            ok = {'chat': lambda: allowed('Command', uid, message.chat.id), 'admin': lambda: is_admin(uid), 'su': lambda: is_su(uid)}[level]()
             if not ok:
                 return await reply(client, message, DENY[level])
             return await fn(client, message)
@@ -121,7 +121,8 @@ def privacy_note() -> str:
     """群聊隐私模式开启时，Bot 收不到群里不带 @ 的普通消息，触发词前缀和唤醒词在群聊里就不会生效"""
     if getattr(chat.me, 'can_read_all_group_messages', None) is not False:
         return ''
-    if not config['AI']['TriggerPrefix'] and not (config['AI']['AutoReply'] and config['AI']['WakeWord']):
+    access = config['AI']['Access']
+    if not (config['AI']['TriggerPrefix'] and access['Prefix'] != 'off') and not (config['AI']['WakeWord'] and access['WakeWord'] != 'off'):
         return ''
     return ("⚠️ Bot 的群聊隐私模式未关闭，收不到群里不带 @ 的普通消息，触发词前缀 / 唤醒词在群聊中不会生效（私聊不受影响）。"
             "请在 @BotFather 执行 /setprivacy 选择 Disable，然后把 Bot 移出群再重新拉入（设为群管理员也可以）。")
@@ -214,7 +215,7 @@ async def cmd_help(client, message):
     uid = message.from_user.id if message.from_user else 0
     lines = [f"欢迎使用 `{chat.me.first_name}` 呢 你可以使用以下指令呢 ~\n", "/help `获取帮助菜单`",
              f"/version `获取版本信息 - {VERSION} ({VERSION_ID})`", "/stats `获取权限状态`"]
-    if can_chat(uid, message.chat.id):
+    if allowed('Command', uid, message.chat.id):
         lines += ["/chat `发送聊天内容`", "/clear `清除上下文记录`", "/page `跳转页数`", "/memory `查看或清除长期记忆`"]
     if is_admin(uid):
         lines += ["/model `[管理]修改聊天模型`", "/prune `[管理]测试模型可用性`", "/effort `[管理]设置思维链深度`",
@@ -574,33 +575,34 @@ async def trigger(client, message, text: str):
 @on(MessageHandler)
 async def auto_reply(client, message):
     """不带 /chat 的对话入口。已注册的指令由前面的指令处理器先处理，不会走到这里。
-    触发词前缀在任何聊天里都生效，且不检查发送者权限（访客模式和内联模式仍会检查）；
-    其余入口需要有对话权限：私聊直接对话；群聊的 @提及 / 回复 Bot / 唤醒词还需要 AI.AutoReply"""
+    各入口谁能用由 AI.Access 决定（触发词前缀 Prefix、私聊 Private、群聊的 @提及 Mention / 回复 Bot Reply / 唤醒词 WakeWord）"""
     if not message.from_user:
         return
+    uid, chat_id = message.from_user.id, message.chat.id
     text = chat.safe_text(message.text or message.caption)
     if (not text and not (message.photo or message.document or message.sticker)) or (message.media_group_id and not text):
         return    # 没有内容；相册里没有说明文字的图片不单独触发，避免同一个相册触发多次
-    if (rest := match_prefix(text)) is not None:
+    if (rest := match_prefix(text)) is not None and allowed('Prefix', uid, chat_id):
         return spawn(trigger(client, message, rest))
-    if not can_chat(message.from_user.id, message.chat.id) or text.startswith('/'):
-        return    # 无权限；以 / 开头的都是指令（包括未注册的、属于其他 Bot 的），不当作对话内容
-    private = message.chat.type == pyrogram.enums.ChatType.PRIVATE
-    if not private and not config['AI']['AutoReply']:
-        return
+    if text.startswith('/'):
+        return    # 以 / 开头的都是指令（包括未注册的、属于其他 Bot 的），不当作对话内容
     lowered = text.lower()
-    for name in (chat.me.username, chat.me.first_name):
-        if name and f"@{name}".lower() in lowered:
-            return spawn(trigger(client, message, remove_mention(text, f"@{name}")))
+    mention = next((f"@{n}" for n in (chat.me.username, chat.me.first_name) if n and f"@{n}".lower() in lowered), None)
+    body = remove_mention(text, mention) if mention else text
+    if message.chat.type == pyrogram.enums.ChatType.PRIVATE:
+        return spawn(trigger(client, message, body)) if allowed('Private', uid, chat_id) else None
+    if mention and allowed('Mention', uid, chat_id):
+        return spawn(trigger(client, message, body))
     replied = message.reply_to_message
-    if private or (replied and replied.from_user and replied.from_user.is_self):
+    if replied and replied.from_user and replied.from_user.is_self and allowed('Reply', uid, chat_id):
         return spawn(trigger(client, message, text))
-    for word in config['AI']['WakeWord']:
-        try:
-            if re.search(word, text, re.IGNORECASE):
-                return spawn(trigger(client, message, text))
-        except re.error:
-            continue
+    if allowed('WakeWord', uid, chat_id):
+        for word in config['AI']['WakeWord']:
+            try:
+                if re.search(word, text, re.IGNORECASE):
+                    return spawn(trigger(client, message, text))
+            except re.error:
+                continue
 
 
 def remove_mention(text: str, mention: str) -> str:
@@ -612,7 +614,7 @@ def remove_mention(text: str, mention: str) -> str:
 
 @on(InlineQueryHandler)
 async def inline_query(client, query):
-    if not is_admin(query.from_user.id):
+    if not allowed('Inline', query.from_user.id, 0):
         return await query.answer([InlineQueryResultArticle('您没有权限使用这个命令呢', InputTextMessageContent("❌ 您没有权限呢 请联系超管授权 ~"), description='请联系超管授权')], cache_time=1)
     if not query.query.strip():
         return await query.answer([InlineQueryResultArticle('请输入内容呢', InputTextMessageContent(f"❌ 请按照 `@{chat.me.username} 内容` 的格式填写呢 ~"), description='请填写需要发送的内容')], cache_time=1)
@@ -622,7 +624,7 @@ async def inline_query(client, query):
 
 @on(ChosenInlineResultHandler)
 async def chosen_inline(client, chosen):
-    if is_admin(chosen.from_user.id) and chosen.inline_message_id:
+    if allowed('Inline', chosen.from_user.id, 0) and chosen.inline_message_id:
         spawn(chat.from_inline(client, chosen))
 
 
@@ -632,7 +634,7 @@ async def guest_message(client, message):
         return
     conv, chat_id = chat.chat_conv(message)
     uid = message.from_user.id
-    if not can_chat(uid, chat_id):
+    if not allowed('Guest', uid, chat_id):
         return
     text = chat.safe_text(message.text or message.caption)
     if chat.me.username:

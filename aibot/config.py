@@ -6,6 +6,7 @@ import copy
 import yaml
 
 HIDE = True
+LEVELS = ('off', 'admin', 'auth', 'all')
 SECRET_KEYS = {'Key', 'ApiKey', 'Token', 'ApiHash', 'ApiId', 'Password'}
 
 # 叶子: (描述, 类型, 默认值[, 隐藏])  分支: (描述, {子项})
@@ -65,9 +66,18 @@ _TREE = {
         'ReasoningEffort': ('推理深度', 'str', 'auto'),
         'MaxContext': ('最长上下文数量', 'int', 100),
         'MaxFileSize': ('最大文件大小(MB)', 'int', 50),
-        'AutoReply': ('群聊自动回复（@提及、回复 Bot、唤醒词）', 'bool', False),
         'WakeWord': ('唤醒词', 'list', []),
         'TriggerPrefix': ('触发词前缀', 'list', []),
+        'Access': ('各入口的使用权限 off=关闭 admin=仅管理员 auth=管理员或白名单群组 all=所有人', {
+            'Command': ('/chat 等对话指令', 'str', 'auth'),
+            'Private': ('私聊直接对话', 'str', 'auth'),
+            'Prefix': ('触发词前缀', 'str', 'all'),
+            'Mention': ('群聊 @机器人', 'str', 'all'),
+            'Reply': ('群聊回复机器人的消息', 'str', 'auth'),
+            'WakeWord': ('群聊唤醒词', 'str', 'auth'),
+            'Guest': ('访客模式', 'str', 'auth'),
+            'Inline': ('内联模式', 'str', 'admin'),
+        }),
         'FileSupport': ('把文档直接传给模型', 'bool', False),
         'IDRecognition': ('内置身份识别', {
             'Enable': ('是否开启内置身份识别', 'bool', True),
@@ -140,7 +150,12 @@ def cast(path: str, type_: str, value):
         if type_ == 'float':
             return float(value)
         if type_ == 'str':
-            return '' if value is None else str(value)
+            text = '' if value is None else str(value)
+            if path.startswith('AI.Access.'):
+                if text.strip().lower() not in LEVELS:
+                    raise ConfigError(f"配置项 {path} 应为 {' / '.join(LEVELS)} 之一，实际为 {text!r}")
+                return text.strip().lower()
+            return text
         if type_ == 'list' and isinstance(value, (str, int, float)) and not isinstance(value, bool):
             return [value] if value != '' else []    # 单个值也接受，等同于只有一项的列表
         if type_ in ('list', 'dict'):
@@ -321,6 +336,12 @@ def is_admin(uid) -> bool:
 
 def can_chat(uid, chat_id) -> bool:
     return is_admin(uid) or chat_id in config['AI']['WhiteList']
+
+
+def allowed(entry: str, uid, chat_id) -> bool:
+    """入口 entry（AI.Access 下的键）是否允许该用户使用：off 关闭 / admin 仅管理员 / auth 管理员或白名单群组 / all 所有人"""
+    level = config['AI']['Access'][entry]
+    return level == 'all' or (level == 'admin' and is_admin(uid)) or (level == 'auth' and can_chat(uid, chat_id))
 
 
 def model_map() -> dict:
