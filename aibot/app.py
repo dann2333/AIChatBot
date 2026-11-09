@@ -14,6 +14,10 @@ from . import db, sandbox, chat, handlers
 logging.getLogger("pyrogram").setLevel(logging.ERROR)
 
 WATCH_INTERVAL = 3
+HEARTBEAT_INTERVAL = 60   # 与 Telegram 的连接探测间隔
+HEARTBEAT_FAILS = 3       # 连续失败这么多次就认为连接已无法恢复
+HEARTBEAT_TIMEOUT = 30    # 单次探测的超时
+STOP_TIMEOUT = 8
 
 TEMPLATE = """# 最简配置，完整说明见 readme.config.yaml
 SuAdmin:
@@ -72,6 +76,43 @@ async def watch_config(client):
         await handlers.refresh(client)
 
 
+async def watch_connection(client, broken: asyncio.Event):
+    """定期探测与 Telegram 的连接。会话失效（如 AuthKeyNotFound）后 Pyrogram 不会自行恢复，Bot 会假死不再响应，
+    所以连续探测失败时通知主流程退出，由容器的重启策略重新登录"""
+    fails = 0
+    while True:
+        await asyncio.sleep(HEARTBEAT_INTERVAL)
+        try:
+            await asyncio.wait_for(client.get_me(), HEARTBEAT_TIMEOUT)
+            fails = 0
+        except Exception as e:
+            fails += 1
+            logger.warning(f"Telegram heartbeat failed ({fails}/{HEARTBEAT_FAILS}): {e!r}")
+            if fails >= HEARTBEAT_FAILS:
+                broken.set()
+                return
+
+
+def drop_session(client):
+    """删除保存的会话文件，下次启动时用 Bot Token 重新登录（失效的会话不删的话，重启后仍然是坏的）"""
+    database = client.storage.database
+    if isinstance(database, str):    # 内存会话
+        return
+    for suffix in ('', '-journal', '-wal', '-shm'):
+        try:
+            os.remove(f"{database}{suffix}")
+        except FileNotFoundError:
+            pass
+
+
+async def stop_client(client):
+    """停止客户端。连接已坏时 stop() 会长时间重试甚至抛错，这里限时并忽略异常"""
+    try:
+        await asyncio.wait_for(client.stop(), STOP_TIMEOUT)
+    except Exception as e:
+        logger.warning(f"Client stop failed: {e!r}")
+
+
 def setup_logger():
     if config['Other']['Log']['Enable']:
         logger.add(config['Other']['Log']['Name'], rotation="10 MB", retention=5)
@@ -101,17 +142,28 @@ async def main():
     await db.init()
     try:
         await sandbox.probe()
-        await app.start()
+        try:
+            await app.start()
+        except Exception:
+            drop_session(app)
+            raise
         logger.info('Bot Start')
         chat.me = await app.get_me()
         await handlers.refresh(app)
         await notify_su(app, "`Bot` 启动啦 ~" + version_notes())
-        watcher = asyncio.create_task(watch_config(app))
+        broken = asyncio.Event()
+        watchers = [asyncio.create_task(watch_config(app)), asyncio.create_task(watch_connection(app, broken))]
+        waiting = [asyncio.create_task(pyrogram.idle()), asyncio.create_task(broken.wait())]   # 收到停止信号，或连接失效
         try:
-            await pyrogram.idle()
+            await asyncio.wait(waiting, return_when=asyncio.FIRST_COMPLETED)
         finally:
-            watcher.cancel()
-            await app.stop()
+            for task in watchers + waiting:
+                task.cancel()
+            await stop_client(app)
+        if broken.is_set():
+            logger.error("与 Telegram 的连接已失效且无法恢复，删除会话文件并退出，等待重新启动")
+            drop_session(app)
+            sys.exit(1)
     finally:
         await db.close()
 

@@ -1,7 +1,7 @@
 # -*- coding: UTF-8 -*-
 
-VERSION = "2.0.3"
-VERSION_ID = 2026110703
+VERSION = "2.0.4"
+VERSION_ID = 2026110901
 VERSION_SOURCE = "Official"
 
 # 版本更新介绍：启动时会把比 Other.CurrentVersion 新的条目发给超管
@@ -27,5 +27,9 @@ CHANGELOG = {
     2026110703: (
         "- 默认改用 Responses 接口 (`/v1/responses`)，推理与工具可同时使用\n"
         "- 服务只支持 `/chat/completions` 时，在提供商下设置 `Api: chat`"
+    ),
+    2026110901: (
+        "- 修复 Telegram 会话失效 (`AuthKeyNotFound`) 后 Bot 假死不响应：每分钟探测一次连接，连续失败会删除会话文件并退出，由容器重启策略重新登录\n"
+        "- 停止时限时并忽略连接错误，不再因连接已断而输出 Traceback"
     ),
 }

@@ -48,6 +48,7 @@ docker run -d --name aibot --restart unless-stopped \
 - 三个 `--security-opt` 是 bubblewrap 沙箱在容器内运行所必需的，缺一不可；去掉后 Bot 仍能运行，只是 Shell 工具会被禁用。
 - 自己构建：`docker build -t aibot .`。Docker Hub 访问慢时可加 `--build-arg BASE_IMAGE=<镜像源>/python:3.12-slim`；需要更多沙箱工具时可加 `--build-arg EXTRA_PACKAGES="ffmpeg imagemagick"`。
 - 在 Docker 中 `/stop` 相当于重启（`--restart unless-stopped`）；要彻底停止请使用 `docker stop aibot`。
+- 与 Telegram 的连接失效且无法恢复时（例如日志里出现 `AuthKeyNotFound`），Bot 会连续探测约 3 分钟，然后删除会话文件并退出，由 `--restart unless-stopped` 重新登录；没有重启策略时需要手动重启。
 
 ### 手动部署
 
