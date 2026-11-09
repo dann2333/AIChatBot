@@ -536,24 +536,56 @@ async def auto_leave(client, message):
         await client.leave_chat(message.chat.id)
 
 
+PREFIX_SEPARATORS = ' \t\r\n,，:：;；、'
+
+
+def match_prefix(text: str) -> str | None:
+    """文本以 AI.TriggerPrefix 中的某个字符串开头时，返回去掉它（及其后的分隔符）之后的内容，否则返回 None"""
+    body = text.lstrip()
+    for prefix in sorted((str(p).strip() for p in config['AI']['TriggerPrefix']), key=len, reverse=True):   # 最长的优先
+        match = re.match(re.escape(prefix), body, re.IGNORECASE) if prefix else None
+        if not match:
+            continue
+        rest = body[match.end():]
+        if prefix[-1].isascii() and prefix[-1].isalnum() and rest[:1].isascii() and rest[:1].isalnum():
+            continue    # 英文触发词后面紧跟字母数字时不算，例如 ai 不会被 airplane 触发
+        return rest.lstrip(PREFIX_SEPARATORS) or text.strip()
+    return None
+
+
+async def trigger(client, message, text: str):
+    if message.media_group_id:
+        await asyncio.sleep(1)    # 相册里的其他图片可能还没到齐，稍等再一起读取
+    await chat.from_message(client, message, text)
+
+
 @on(MessageHandler)
 async def auto_reply(client, message):
-    if not message.from_user or not config['AI']['AutoReply'] or not can_chat(message.from_user.id, message.chat.id):
+    """不带 /chat 的对话入口。已注册的指令由前面的指令处理器先处理，不会走到这里。
+    私聊直接对话；触发词前缀在任何聊天里都生效；群聊的 @提及 / 回复 Bot / 唤醒词需要 AI.AutoReply"""
+    if not message.from_user or not can_chat(message.from_user.id, message.chat.id):
         return
     text = chat.safe_text(message.text or message.caption)
-    if not text and not (message.photo or message.document or message.sticker):
+    if (not text and not (message.photo or message.document or message.sticker)) or (message.media_group_id and not text):
+        return    # 没有内容；相册里没有说明文字的图片不单独触发，避免同一个相册触发多次
+    if (rest := match_prefix(text)) is not None:
+        return spawn(trigger(client, message, rest))
+    if text.startswith('/'):
+        return    # 以 / 开头的都是指令（包括未注册的、属于其他 Bot 的），不当作对话内容
+    private = message.chat.type == pyrogram.enums.ChatType.PRIVATE
+    if not private and not config['AI']['AutoReply']:
         return
     lowered = text.lower()
     for name in (chat.me.username, chat.me.first_name):
         if name and f"@{name}".lower() in lowered:
-            return spawn(chat.from_message(client, message, remove_mention(text, f"@{name}")))
+            return spawn(trigger(client, message, remove_mention(text, f"@{name}")))
     replied = message.reply_to_message
-    if message.chat.type == pyrogram.enums.ChatType.PRIVATE or (replied and replied.from_user and replied.from_user.is_self):
-        return spawn(chat.from_message(client, message, text))
+    if private or (replied and replied.from_user and replied.from_user.is_self):
+        return spawn(trigger(client, message, text))
     for word in config['AI']['WakeWord']:
         try:
             if re.search(word, text, re.IGNORECASE):
-                return spawn(chat.from_message(client, message, text))
+                return spawn(trigger(client, message, text))
         except re.error:
             continue
 

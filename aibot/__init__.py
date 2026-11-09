@@ -1,7 +1,7 @@
 # -*- coding: UTF-8 -*-
 
-VERSION = "2.0.4"
-VERSION_ID = 2026110901
+VERSION = "2.0.5"
+VERSION_ID = 2026110902
 VERSION_SOURCE = "Official"
 
 # 版本更新介绍：启动时会把比 Other.CurrentVersion 新的条目发给超管
@@ -31,5 +31,10 @@ CHANGELOG = {
     2026110901: (
         "- 修复 Telegram 会话失效 (`AuthKeyNotFound`) 后 Bot 假死不响应：每分钟探测一次连接，连续失败会删除会话文件并退出，由容器重启策略重新登录\n"
         "- 停止时限时并忽略连接错误，不再因连接已断而输出 Traceback"
+    ),
+    2026110902: (
+        "- 私聊默认直接对话，不再需要 `/chat`（不受 `AI.AutoReply` 影响，`AutoReply` 现在只管群聊）\n"
+        "- 新增 `AI.TriggerPrefix` 触发词前缀：消息以其中任一字符串开头时拉起对话，私聊和群聊都生效\n"
+        "- 以 `/` 开头的消息始终视为指令，未注册的指令不会被当作对话内容；图片相册只触发一次"
     ),
 }

@@ -65,8 +65,9 @@ _TREE = {
         'ReasoningEffort': ('推理深度', 'str', 'auto'),
         'MaxContext': ('最长上下文数量', 'int', 100),
         'MaxFileSize': ('最大文件大小(MB)', 'int', 50),
-        'AutoReply': ('自动回复', 'bool', False),
+        'AutoReply': ('群聊自动回复（@提及、回复 Bot、唤醒词）', 'bool', False),
         'WakeWord': ('唤醒词', 'list', []),
+        'TriggerPrefix': ('触发词前缀', 'list', []),
         'FileSupport': ('把文档直接传给模型', 'bool', False),
         'IDRecognition': ('内置身份识别', {
             'Enable': ('是否开启内置身份识别', 'bool', True),

@@ -56,8 +56,9 @@ AI: # AI配置
   ReasoningEffort: auto # 默认推理预算
   MaxContext: 100 # 每次请求最多带上的历史消息数
   MaxFileSize: 50 # 最大文件大小 单位 MB
-  AutoReply: false # 是否开启自动回复
-  WakeWord: [] # 唤醒词 正则表达式 仅当自动回复开启时生效
+  AutoReply: false # 群聊是否自动回复 即 @机器人 / 回复机器人 / 命中唤醒词 私聊不受影响 始终直接对话
+  WakeWord: [] # 唤醒词 正则表达式 仅当群聊自动回复开启时生效
+  TriggerPrefix: [] # 触发词前缀 消息以其中任一字符串开头时拉起对话并去掉该前缀 例如 ['小助手', 'ai'] 私聊和群聊都生效 不受 AutoReply 限制
   FileSupport: false # 是否把文档以 file 类型直接传给模型 沙箱可用时文件总会保存到 /workspace/chat/uploads
   IDRecognition: # 内置身份识别 仅群聊生效
     Enable: true # 是否启用内置身份识别
